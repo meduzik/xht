@@ -1,0 +1,71 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ImportGroup Label="PropertySheets" />
+  <PropertyGroup Label="UserMacros">
+    <ModuleRoot>$(ProjectDir)</ModuleRoot>
+    <BuildDir>$(SolutionDir).build\</BuildDir>
+    <ProjectBuildDir>$(BuildDir)$(ProjectName)\$(Platform)_$(Configuration)\</ProjectBuildDir>
+    <PlatformBuildDir>$(BuildDir)$(Platform)_$(Configuration)\</PlatformBuildDir>
+    <BinDir>$(PlatformBuildDir)bin\</BinDir>
+    <LibDir>$(PlatformBuildDir)lib\</LibDir>
+    <GenDir>$(ModuleRoot)generated\</GenDir>
+    <ModuleName>$(ProjectName)</ModuleName>
+  </PropertyGroup>
+  <PropertyGroup>
+    <OutDir>$(BinDir)</OutDir>
+    <IntDir>$(ProjectBuildDir)\int\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(ProjectDir)include\;$(GenDir)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS;_UNICODE;UNICODE;_HAS_EXCEPTIONS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <Optimization />
+      <PrecompiledHeaderOutputFile>$(IntDir)$(TargetName).pch</PrecompiledHeaderOutputFile>
+      <AssemblerListingLocation>$(IntDir)%(RelativeDir)</AssemblerListingLocation>
+      <ObjectFileName>$(IntDir)%(RelativeDir)</ObjectFileName>
+      <XMLDocumentationFileName>$(IntDir)%(RelativeDir)</XMLDocumentationFileName>
+      <DiagnosticsFormat>Caret</DiagnosticsFormat>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>$(ProjectDir)source\$(ModuleName)\pch.hpp</PrecompiledHeaderFile>
+      <ForcedIncludeFiles>$(ProjectDir)source\$(ModuleName)\pch.hpp</ForcedIncludeFiles>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4065;4200</DisableSpecificWarnings>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <SupportJustMyCode>false</SupportJustMyCode>
+      <ExceptionHandling>false</ExceptionHandling>
+      <ConformanceMode>true</ConformanceMode>
+      <RuntimeTypeInfo>false</RuntimeTypeInfo>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>$(LibDir)</AdditionalLibraryDirectories>
+      <ImportLibrary>$(LibDir)$(TargetName).lib</ImportLibrary>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <BuildMacro Include="ModuleRoot">
+      <Value>$(ModuleRoot)</Value>
+    </BuildMacro>
+    <BuildMacro Include="BuildDir">
+      <Value>$(BuildDir)</Value>
+    </BuildMacro>
+    <BuildMacro Include="ProjectBuildDir">
+      <Value>$(ProjectBuildDir)</Value>
+    </BuildMacro>
+    <BuildMacro Include="PlatformBuildDir">
+      <Value>$(PlatformBuildDir)</Value>
+    </BuildMacro>
+    <BuildMacro Include="BinDir">
+      <Value>$(BinDir)</Value>
+    </BuildMacro>
+    <BuildMacro Include="LibDir">
+      <Value>$(LibDir)</Value>
+    </BuildMacro>
+    <BuildMacro Include="GenDir">
+      <Value>$(GenDir)</Value>
+    </BuildMacro>
+    <BuildMacro Include="ModuleName">
+      <Value>$(ModuleName)</Value>
+    </BuildMacro>
+  </ItemGroup>
+</Project>
