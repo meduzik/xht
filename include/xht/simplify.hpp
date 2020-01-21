@@ -30,6 +30,8 @@ struct BasicSimplify
 	template<typename TKey, typename TInKey>
 	static xht_forceinline decltype(auto) SimplifyKey(const TInKey& inKey)
 	{
+		using TSimpleKey = SimpleKey<TKey>;
+
 		if constexpr (std::is_same_v<TKey, TInKey>)
 		{
 			return inKey;
@@ -37,16 +39,16 @@ struct BasicSimplify
 		else
 		{
 			decltype(auto) key = xht::SimplifyKey(inKey);
-			using SimpleKeyType = std::decay_t<decltype(key)>;
+			using TSimpleInKey = std::decay_t<decltype(key)>;
 
-			if constexpr (std::is_same_v<SimpleKeyType, TKey>)
+			if constexpr (std::is_same_v<TSimpleInKey, TSimpleKey>)
 			{
 				return key;
 			}
 			else
 			{
-				SimplifyVerify<TKey, TInKey, SimpleKeyType>();
-				return static_cast<TKey>(key);
+				SimplifyVerify<TSimpleKey, TInKey, TSimpleInKey>();
+				return static_cast<TSimpleKey>(key);
 			}
 		}
 	}

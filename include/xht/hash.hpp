@@ -55,7 +55,7 @@ xht_forceinline TState Hash(TState state, T val) {
 	return HashExt(state, val);
 }
 
-using DefaultHash = FNV1aHash;
+using DefaultHash = FNV1aHash<meta::Select<sizeof(uword) == 8, u64, u32>>;
 
 template<typename THash>
 struct HashState {

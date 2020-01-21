@@ -369,7 +369,7 @@ namespace xht::impl::hashtable {
 				u8* slot = slots + elemSize * probe.Offset(xht_ctz32(mask));
 
 				if (xht_likely(TCompare::Compare(key,
-					TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(
+					TSimplify::template SimplifyKey<TKey>(
 						*TKeyTraits::template GetKey<TKey>(slot)))))
 				{
 					return slot;
@@ -400,7 +400,7 @@ namespace xht::impl::hashtable {
 			if (srcCtrl[srcSlotIndex] >= 0)
 			{
 				uword hash = THash::Hash(
-					TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(
+					TSimplify::template SimplifyKey<TKey>(
 						*TKeyTraits::template GetKey<TKey>(srcSlot)));
 
 				iword dstSlotIndex = FindFreeSlot(dst, hash);
@@ -462,7 +462,7 @@ namespace xht::impl::hashtable {
 				continue;
 
 			uword hash = THash::Hash(
-				TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(
+				TSimplify::template SimplifyKey<TKey>(
 					*TKeyTraits::template GetKey<TKey>(slot)));
 
 			iword newSlotIndex = FindFreeSlot(table, hash);
@@ -546,7 +546,7 @@ namespace xht::impl::hashtable {
 					probe.Offset(xht_ctz32(mask));
 
 				if (xht_likely(TCompare::Compare(key,
-					TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(
+					TSimplify::template SimplifyKey<TKey>(
 						*TKeyTraits::template GetKey<TKey>(slot)))))
 				{
 					return { slot, false };
@@ -782,7 +782,7 @@ namespace xht::impl::hashtable {
 			//TODO: collapse TCompare=DefaultCompare and TKey has unique repr to
 			// dummy layout type
 
-			decltype(auto) key = TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(inKey);
+			decltype(auto) key = TSimplify::template SimplifyKey<TKey>(inKey);
 			using KeyParamType = decltype(key);
 
 			return (T*)impl::hashtable::Find<
@@ -794,7 +794,7 @@ namespace xht::impl::hashtable {
 		xht_forceinline InsertResult<T> Insert(const TInKey& inKey,
 			InsertCallback insertCallback, const void* insertContext)
 		{
-			decltype(auto) key = TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(inKey);
+			decltype(auto) key = TSimplify::template SimplifyKey<TKey>(inKey);
 			using KeyParamType = decltype(key);
 
 			auto result = impl::hashtable::Insert<TKey, TKeyTraits, TSimplify, TCompare, KeyParamType>(
@@ -806,7 +806,7 @@ namespace xht::impl::hashtable {
 		template<typename TInKey>
 		xht_forceinline T* Remove(const TInKey& inKey)
 		{
-			decltype(auto) key = TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(inKey);
+			decltype(auto) key = TSimplify::template SimplifyKey<TKey>(inKey);
 			using KeyParamType = decltype(key);
 
 			return (T*)impl::hashtable::Remove<
