@@ -3,6 +3,7 @@
 #include "config.hpp"
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 
 namespace xht {
 

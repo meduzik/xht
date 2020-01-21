@@ -6,6 +6,7 @@
 #include "key.hpp"
 #include "hash.hpp"
 #include "compare.hpp"
+#include "simplify.hpp"
 
 #include <utility>
 
@@ -14,15 +15,31 @@ namespace xht {
 	using KeyTraits = xht::impl::hashtable::KeyTraits;
 
 
-	template<typename TKey, typename TValue, typename THash,
-		typename TCompare, typename TAllocatorHandle, iword TCapacity>
-		class HashMap : public xht::impl::hashtable::HashTable<KeyValuePair<TKey, TValue>,
-		TKey, KeyTraits, THash, TCompare, TAllocatorHandle, TCapacity>
+	template<
+		typename TKey,
+		typename TValue,
+		typename TSimplifier,
+		typename THash,
+		typename TCompare,
+		typename TAllocatorHandle,
+		iword TCapacity
+	>
+		class HashMap : public xht::impl::hashtable::HashTable<
+			KeyValuePair<TKey, TValue>,
+			TKey,
+			KeyTraits,
+			TSimplifier,
+			THash,
+			TCompare,
+			TAllocatorHandle,
+			TCapacity
+		>
 	{
 		using B = xht::impl::hashtable::HashTable<
 			KeyValuePair<TKey, TValue>,
 			TKey,
 			KeyTraits,
+			TSimplifier,
 			THash,
 			TCompare,
 			TAllocatorHandle,
@@ -38,7 +55,6 @@ namespace xht {
 		using InsertResult = xht::impl::hashtable::InsertResult<ElementType>;
 
 		using B::B;
-
 
 		template<typename TInKey>
 		xht_forceinline bool Contains(const TInKey& key) const
@@ -117,7 +133,7 @@ namespace xht {
 		xht_forceinline InsertResult Insert(TInKey&& key, TInValue&& value)
 		{
 			InsertResult result = B::Insert(key, &impl::hashtable::GrowCallback<
-				TKey, KeyTraits, THash, TAllocatorHandle, (TCapacity > 0)>,
+				TKey, KeyTraits, TSimplifier, THash, TAllocatorHandle, (TCapacity > 0)>,
 				& static_cast<const TAllocatorHandle&>(B::m));
 
 			if (result.Inserted)
@@ -172,7 +188,6 @@ namespace xht {
 			impl::hashtable::Clear<meta::DestroyType<ElementType>>(&B::m.core, sizeof(ElementType));
 		}
 
-
 		xht_forceinline void Reserve(iword minCapacity)
 		{
 			impl::hashtable::Reserve<TKey, KeyTraits,
@@ -184,11 +199,13 @@ namespace xht {
 
 
 	struct Mallocator {
-		u8* allocate(uword size) {
+		u8* allocate(uword size)
+		{
 			return (u8*)::malloc(size);
 		}
 
-		void free(u8* ptr, uword size) {
+		void free(u8* ptr, uword size)
+		{
 			::free(ptr);
 		}
 	};
@@ -196,9 +213,10 @@ namespace xht {
 	template<
 		class K,
 		class V,
-		class Hash = Hasher<K>,
-		class Eq = DefaultCompare
+		class TSimplifier = DefaultSimplifier<K>,
+		class THash = DefaultHasher<K>,
+		class TCompare = DefaultComparator<K>
 	>
-	using StdHashMap = HashMap<K, V, Hash, Eq, Mallocator, 16>;
+	using StdHashMap = HashMap<K, V, TSimplifier, THash, TCompare, Mallocator, 16>;
 }
 

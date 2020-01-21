@@ -5,17 +5,6 @@
 #include "traits.hpp"
 
 namespace xht {
-namespace ext {
-
-template<typename TKey>
-xht_forceinline const TKey& SimplifyKey(const TKey& key) {
-	return key;
-}
-
-}
-
-template<typename T>
-using SimpleKey = std::decay_t<decltype(ext::SimplifyKey(std::declval<T>()))>;
 
 template<typename TKey, typename TValue>
 struct KeyValuePair

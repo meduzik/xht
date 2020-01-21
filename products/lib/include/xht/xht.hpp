@@ -99,6 +99,7 @@ namespace xht {
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 
 namespace xht {
 
@@ -266,21 +267,35 @@ namespace xht {
 
 namespace xht {
 
-struct DefaultCompare
+struct BasicComparator
 {
 	template<typename T1, typename T2>
 	static xht_forceinline bool Compare(const T1& t1, const T2& t2)
 	{
-		if constexpr (std::is_floating_point_v<T1> && std::is_floating_point_v<T2>) {
+		if constexpr (std::is_floating_point_v<T1>&& std::is_floating_point_v<T2>) {
 			using T3 = std::common_type_t<T1, T2>;
 			T3 x = t1;
 			T3 y = t2;
 			return !memcmp(&x, &y, sizeof(T3));
-		} else {
+		}
+		else {
 			return t1 == t2;
 		}
 	}
 };
+
+
+namespace ext {
+
+	template<typename K>
+	struct Comparator {
+		using Type = BasicComparator;
+	};
+
+}
+
+template<class K>
+using DefaultComparator = typename ext::Comparator<K>::Type;
 
 
 }
@@ -289,17 +304,6 @@ struct DefaultCompare
 
 
 namespace xht {
-namespace ext {
-
-template<typename TKey>
-xht_forceinline const TKey& SimplifyKey(const TKey& key) {
-	return key;
-}
-
-}
-
-template<typename T>
-using SimpleKey = std::decay_t<decltype(ext::SimplifyKey(std::declval<T>()))>;
 
 template<typename TKey, typename TValue>
 struct KeyValuePair
@@ -328,6 +332,73 @@ constexpr bool xht::meta::IsTriviallyRelocatable<xht::KeyValuePair<TKey, TValue>
 xht::meta::IsTriviallyRelocatable<TKey> && meta::IsTriviallyRelocatable<TValue>;
 
 // #### END key.hpp #### 
+// #### BEGIN simplify.hpp #### 
+
+namespace xht {
+
+template<typename TKey>
+xht_forceinline const TKey& SimplifyKeyExt(const TKey& key) {
+	return key;
+}
+
+template<typename TKey>
+xht_forceinline const TKey& SimplifyKey(const TKey& key) {
+	return SimplifyKeyExt(key);
+}
+
+struct BasicSimplify
+{
+	template<typename T>
+	using SimpleKey = std::decay_t<decltype(xht::SimplifyKey(std::declval<T>()))>;
+
+	template<typename TKey, typename TInKey, typename TSimpleKeyType>
+	static xht_forceinline void SimplifyVerify() {
+		static_assert(
+			std::is_trivial_v<TKey>
+			&&
+			std::is_convertible_v<TSimpleKeyType, TKey>,
+			"Implicit conversion to simplified key type failed"
+		);
+	}
+
+	template<typename TKey, typename TInKey>
+	static xht_forceinline decltype(auto) SimplifyKey(const TInKey& inKey)
+	{
+		if constexpr (std::is_same_v<TKey, TInKey>)
+		{
+			return inKey;
+		}
+		else
+		{
+			decltype(auto) key = xht::SimplifyKey(inKey);
+			using SimpleKeyType = std::decay_t<decltype(key)>;
+
+			if constexpr (std::is_same_v<SimpleKeyType, TKey>)
+			{
+				return key;
+			}
+			else
+			{
+				SimplifyVerify<TKey, TInKey, SimpleKeyType>();
+				return static_cast<TKey>(key);
+			}
+		}
+	}
+
+};
+
+namespace ext {
+	template<typename T>
+	struct Simplifier {
+		using Type = BasicSimplify;
+	};
+}
+
+template<class K>
+using DefaultSimplifier = typename ext::Simplifier<K>::Type;
+
+}
+// #### END simplify.hpp #### 
 // #### BEGIN hashtable.hpp #### 
 
 #include <cstring>
@@ -337,23 +408,6 @@ xht::meta::IsTriviallyRelocatable<TKey> && meta::IsTriviallyRelocatable<TValue>;
 
 
 namespace xht::impl::hashtable {
-
-
-	template<typename TKey, typename TInKey>
-	xht_forceinline decltype(auto) SimplifyKey(const TInKey& inKey)
-	{
-		if constexpr (std::is_same_v<TKey, TInKey>)
-		{
-			return inKey;
-		}
-		else
-		{
-			decltype(auto) key = xht::ext::SimplifyKey(inKey);
-			typedef std::decay_t<decltype(key)> SimpleKeyType;
-
-			return static_cast<TKey>(key);
-		}
-	}
 
 	enum Ctrl : i8
 	{
@@ -689,7 +743,7 @@ namespace xht::impl::hashtable {
 		return (iword)(offset / (uword)GroupSize);
 	}
 
-	template<typename TKey, typename TKeyTraits, typename TCompare, typename TInKey>
+	template<typename TKey, typename TKeyTraits, typename TSimplify, typename TCompare, typename TInKey>
 	xht_noinline
 		void* Find(const Core* table, uword elemSize, uword hash, TInKey key)
 	{
@@ -708,7 +762,7 @@ namespace xht::impl::hashtable {
 				u8* slot = slots + elemSize * probe.Offset(xht_ctz32(mask));
 
 				if (xht_likely(TCompare::Compare(key,
-					ext::SimplifyKey<SimpleKey<TKey>>(
+					TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(
 						*TKeyTraits::template GetKey<TKey>(slot)))))
 				{
 					return slot;
@@ -722,7 +776,7 @@ namespace xht::impl::hashtable {
 		}
 	}
 
-	template<typename TKey, typename TKeyTraits, typename THash>
+	template<typename TKey, typename TKeyTraits, typename TSimplify, typename THash>
 	static void Rehash(Core* dst, Core* src, uword elemSize)
 	{
 		Ctrl* dstCtrl = dst->ctrl;
@@ -739,7 +793,7 @@ namespace xht::impl::hashtable {
 			if (srcCtrl[srcSlotIndex] >= 0)
 			{
 				uword hash = THash::Hash(
-					ext::SimplifyKey<SimpleKey<TKey>>(
+					TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(
 						*TKeyTraits::template GetKey<TKey>(srcSlot)));
 
 				iword dstSlotIndex = FindFreeSlot(dst, hash);
@@ -752,7 +806,7 @@ namespace xht::impl::hashtable {
 	}
 
 	template<typename TKey, typename TKeyTraits,
-		typename THash, typename TAllocatorHandle, bool THasLocalStorage>
+		typename TSimplify, typename THash, typename TAllocatorHandle, bool THasLocalStorage>
 		static void Resize(Core* table, uword elemSize, iword newCapacity, TAllocatorHandle allocator)
 	{
 		xht_assert(newCapacity > 0 && (newCapacity & newCapacity + 1) == 0);
@@ -772,7 +826,7 @@ namespace xht::impl::hashtable {
 
 		if (size > 0)
 		{
-			Rehash<TKey, TKeyTraits, THash>(&newTable, table, elemSize);
+			Rehash<TKey, TKeyTraits, TSimplify, THash>(&newTable, table, elemSize);
 		}
 
 		ctrl = table->ctrl;
@@ -784,7 +838,7 @@ namespace xht::impl::hashtable {
 		*table = newTable;
 	}
 
-	template<typename TKey, typename TKeyTraits, typename THash>
+	template<typename TKey, typename TKeyTraits, typename TSimplify, typename THash>
 	static void ReuseTombs(Core* table, uword elemSize)
 	{
 		Ctrl* ctrl = table->ctrl;
@@ -801,7 +855,7 @@ namespace xht::impl::hashtable {
 				continue;
 
 			uword hash = THash::Hash(
-				ext::SimplifyKey<SimpleKey<TKey>>(
+				TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(
 					*TKeyTraits::template GetKey<TKey>(slot)));
 
 			iword newSlotIndex = FindFreeSlot(table, hash);
@@ -838,23 +892,23 @@ namespace xht::impl::hashtable {
 	}
 
 	template<typename TKey, typename TKeyTraits,
-		typename THash, typename TAllocatorHandle, bool THasLocalStorage>
+		typename TSimplify, typename THash, typename TAllocatorHandle, bool THasLocalStorage>
 		static InsertResult<void> GrowCallback(Core* table,
 			uword elemSize, uword hash, const void* allocator)
 	{
 		iword capacity = table->capacity;
 		if (capacity == 0)
 		{
-			Resize<TKey, TKeyTraits, THash, TAllocatorHandle, THasLocalStorage>(
+			Resize<TKey, TKeyTraits, TSimplify, THash, TAllocatorHandle, THasLocalStorage>(
 				table, elemSize, GroupSize - 1, *(const TAllocatorHandle*)allocator);
 		}
 		else if (table->size <= GetMaxSize(capacity) / 2)
 		{
-			ReuseTombs<TKey, TKeyTraits, THash>(table, elemSize);
+			ReuseTombs<TKey, TKeyTraits, TSimplify, THash>(table, elemSize);
 		}
 		else
 		{
-			Resize<TKey, TKeyTraits, THash, TAllocatorHandle, THasLocalStorage>(
+			Resize<TKey, TKeyTraits, TSimplify, THash, TAllocatorHandle, THasLocalStorage>(
 				table, elemSize, capacity * 2 + 1, *(const TAllocatorHandle*)allocator);
 		}
 
@@ -864,7 +918,7 @@ namespace xht::impl::hashtable {
 		return InsertSlot(table, elemSize, hash, slotIndex);
 	}
 
-	template<typename TKey, typename TKeyTraits, typename TCompare, typename TInKey>
+	template<typename TKey, typename TKeyTraits, typename TSimplify, typename TCompare, typename TInKey>
 	static xht_noinline InsertResult<void> Insert(
 		Core* table, uword elemSize, uword hash, TInKey key,
 		InsertCallback insertCallback, const void* insertContext)
@@ -885,7 +939,7 @@ namespace xht::impl::hashtable {
 					probe.Offset(xht_ctz32(mask));
 
 				if (xht_likely(TCompare::Compare(key,
-					ext::SimplifyKey<SimpleKey<TKey>>(
+					TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(
 						*TKeyTraits::template GetKey<TKey>(slot)))))
 				{
 					return { slot, false };
@@ -1026,13 +1080,20 @@ namespace xht::impl::hashtable {
 
 	template<typename TCompare, typename TKey>
 	using CompareType = meta::Select<
-		std::is_same_v<TCompare, DefaultCompare> &&
+		std::is_same_v<TCompare, BasicComparator> &&
 		meta::HasUniqueRepresentation<TKey>, TrivialKey<sizeof(TKey)>, TKey>;
 
 	template<
-		typename T, typename TKey, typename TKeyTraits, typename THash,
-		typename TCompare, typename TAllocatorHandle, iword TCapacity>
-		struct HashTable
+		typename T,
+		typename TKey,
+		typename TKeyTraits,
+		typename TSimplify,
+		typename THash,
+		typename TCompare,
+		typename TAllocatorHandle,
+		iword TCapacity
+	>
+	struct HashTable
 	{
 		static_assert(xht::meta::IsTriviallyRelocatable<T>);
 
@@ -1114,11 +1175,11 @@ namespace xht::impl::hashtable {
 			//TODO: collapse TCompare=DefaultCompare and TKey has unique repr to
 			// dummy layout type
 
-			decltype(auto) key = ext::SimplifyKey<SimpleKey<TKey>>(inKey);
+			decltype(auto) key = TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(inKey);
 			using KeyParamType = decltype(key);
 
 			return (T*)impl::hashtable::Find<
-				TKey, TKeyTraits, TCompare, KeyParamType>(
+				TKey, TKeyTraits, TSimplify, TCompare, KeyParamType>(
 					&m.core, sizeof(T), THash::Hash(key), key);
 		}
 
@@ -1126,10 +1187,10 @@ namespace xht::impl::hashtable {
 		xht_forceinline InsertResult<T> Insert(const TInKey& inKey,
 			InsertCallback insertCallback, const void* insertContext)
 		{
-			decltype(auto) key = ext::SimplifyKey<SimpleKey<TKey>>(inKey);
+			decltype(auto) key = TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(inKey);
 			using KeyParamType = decltype(key);
 
-			auto result = impl::hashtable::Insert<TKey, TKeyTraits, TCompare, KeyParamType>(
+			auto result = impl::hashtable::Insert<TKey, TKeyTraits, TSimplify, TCompare, KeyParamType>(
 				&m.core, sizeof(T), THash::Hash(key), key, insertCallback, insertContext);
 
 			return InsertResult<T>{ (T*)result.Element, result.Inserted };
@@ -1138,7 +1199,7 @@ namespace xht::impl::hashtable {
 		template<typename TInKey>
 		xht_forceinline T* Remove(const TInKey& inKey)
 		{
-			decltype(auto) key = ext::SimplifyKey<SimpleKey<TKey>>(inKey);
+			decltype(auto) key = TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(inKey);
 			using KeyParamType = decltype(key);
 
 			return (T*)impl::hashtable::Remove<
@@ -1205,119 +1266,119 @@ namespace xht {
 
 namespace xht {
 
-	template<typename TState, typename T>
-	TState HashExt(TState, ...) = delete;
+template<typename TState, typename T>
+TState HashExt(TState, ...) = delete;
 
-	template<typename TState>
-	xht_forceinline TState HashExt(TState state, bool value) {
-		return state.Combine((u8)value);
+template<typename TState>
+xht_forceinline TState HashExt(TState state, bool value) {
+	return state.Combine((u8)value);
+}
+
+template<typename TState, typename T>
+xht_forceinline TState HashExt(TState state, T* value) {
+	uword integer = (uword)value;
+	return state.Combine(integer, integer);
+}
+
+template<typename TState, typename T>
+xht_forceinline auto HashExt(TState state, T value)
+	-> std::enable_if_t<std::is_floating_point_v<T>, TState> {
+	return state.CombineBytes((const void*)&value, sizeof(value));
+}
+
+template<typename TState>
+xht_forceinline TState HashExt(TState state, std::string_view value) {
+	return state.CombineBytes(value.data(), value.size());
+}
+
+template<typename TState, typename T>
+xht_forceinline auto HashExt(TState state, const T& value)
+	-> std::enable_if_t<xht::meta::HasUniqueRepresentation<T>, TState> {
+	if constexpr (sizeof(T) <= 8) {
+		u64 bits = 0;
+		memcpy(&bits, &value, sizeof(value));
+		return state.Combine(bits);
 	}
-
-	template<typename TState, typename T>
-	xht_forceinline TState HashExt(TState state, T* value) {
-		uword integer = (uword)value;
-		return state.Combine(integer, integer);
-	}
-
-	template<typename TState, typename T>
-	xht_forceinline auto HashExt(TState state, T value)
-		-> std::enable_if_t<std::is_floating_point_v<T>, TState> {
+	else {
 		return state.CombineBytes((const void*)&value, sizeof(value));
 	}
+}
 
-	template<typename TState>
-	xht_forceinline TState HashExt(TState state, std::string_view value) {
-		return state.CombineBytes(value.data(), value.size());
-	}
+template<typename TState, typename A, typename B>
+xht_forceinline TState HashExt(TState state, const std::pair<A, B>& value) {
+	return state.Combine(value.first, value.second);
+}
 
-	template<typename TState, typename T>
-	xht_forceinline auto HashExt(TState state, const T& value)
-		-> std::enable_if_t<xht::meta::HasUniqueRepresentation<T>, TState> {
-		if constexpr (sizeof(T) <= 8) {
-			u64 bits = 0;
-			memcpy(&bits, &value, sizeof(value));
-			return state.Combine(bits);
+template<typename TState, typename T>
+xht_forceinline TState Hash(TState state, T val) {
+	return HashExt(state, val);
+}
+
+using DefaultHash = FNV1aHash;
+
+template<typename THash>
+struct HashState {
+	static_assert(
+		std::is_trivial_v<typename THash::StateType>,
+		"hash state must be trivial");
+
+	typename THash::StateType m_state;
+
+	template<typename T>
+	xht_forceinline HashState Combine(const T& value) {
+		if constexpr (std::is_integral_v<T>) {
+			return { THash::Combine(m_state, value) };
 		}
 		else {
-			return state.CombineBytes((const void*)&value, sizeof(value));
+			return Hash(*this, value);
 		}
 	}
 
-	template<typename TState, typename A, typename B>
-	xht_forceinline TState HashExt(TState state, const std::pair<A, B>& value) {
-		return state.Combine(value.first, value.second);
-	}
-
-	template<typename TState, typename T>
-	xht_forceinline TState Hash(TState state, T val) {
-		return HashExt(state, val);
-	}
-
-	using DefaultHash = FNV1aHash;
-
-	template<typename THash>
-	struct HashState {
-		static_assert(
-			std::is_trivial_v<typename THash::StateType>,
-			"hash state must be trivial");
-
-		typename THash::StateType m_state;
-
-		template<typename T>
-		xht_forceinline HashState Combine(const T& value) {
-			if constexpr (std::is_integral_v<T>) {
-				return { THash::Combine(m_state, value) };
-			}
-			else {
-				return Hash(*this, value);
-			}
-		}
-
-		template<typename... TArgs>
-		xht_forceinline HashState Combine(const TArgs&... args) {
-			HashState state = *this;
-			((state = state.Combine(args)), ...);
-			return state;
-		}
-
-		template<typename T>
-		xht_forceinline HashState CombineArray(const T* data, iword size) {
-			if constexpr (meta::HasUniqueRepresentation<T>) {
-				return CombineBytes(data, (uword)size * sizeof(T));
-			}
-			else {
-				HashState state = *this;
-				for (iword i = 0; i < size; ++i)
-					state = state.Combine(data[i]);
-				return state;
-			}
-		}
-
-		xht_forceinline HashState CombineBytes(const void* data, uword size) {
-			return { THash::Combine(m_state, data, size) };
-		}
-	};
-
-	template<typename THash>
-	struct BasicHasher {
-		template<typename T>
-		static xht_noinline uword Hash(const T& value) {
-			HashState<THash> state{ THash::Init() };
-			return THash::Finalize(state.Combine(value).m_state);
-		}
-	};
-
-	namespace ext {
-
-		template<typename T>
-		struct Hasher {
-			using Type = BasicHasher<DefaultHash>;
-		};
-
+	template<typename... TArgs>
+	xht_forceinline HashState Combine(const TArgs&... args) {
+		HashState state = *this;
+		((state = state.Combine(args)), ...);
+		return state;
 	}
 
 	template<typename T>
-	using Hasher = typename ext::Hasher<T>::Type;
+	xht_forceinline HashState CombineArray(const T* data, iword size) {
+		if constexpr (meta::HasUniqueRepresentation<T>) {
+			return CombineBytes(data, (uword)size * sizeof(T));
+		}
+		else {
+			HashState state = *this;
+			for (iword i = 0; i < size; ++i)
+				state = state.Combine(data[i]);
+			return state;
+		}
+	}
+
+	xht_forceinline HashState CombineBytes(const void* data, uword size) {
+		return { THash::Combine(m_state, data, size) };
+	}
+};
+
+template<typename THash>
+struct BasicHasher {
+	template<typename T>
+	static xht_noinline uword Hash(const T& value) {
+		HashState<THash> state{ THash::Init() };
+		return THash::Finalize(state.Combine(value).m_state);
+	}
+};
+
+namespace ext {
+
+	template<typename T>
+	struct Hasher {
+		using Type = BasicHasher<DefaultHash>;
+	};
+
+}
+
+template<typename T>
+using DefaultHasher = typename ext::Hasher<T>::Type;
 
 }
 // #### END hash.hpp #### 
@@ -1331,15 +1392,31 @@ namespace xht {
 	using KeyTraits = xht::impl::hashtable::KeyTraits;
 
 
-	template<typename TKey, typename TValue, typename THash,
-		typename TCompare, typename TAllocatorHandle, iword TCapacity>
-		class HashMap : public xht::impl::hashtable::HashTable<KeyValuePair<TKey, TValue>,
-		TKey, KeyTraits, THash, TCompare, TAllocatorHandle, TCapacity>
+	template<
+		typename TKey,
+		typename TValue,
+		typename TSimplifier,
+		typename THash,
+		typename TCompare,
+		typename TAllocatorHandle,
+		iword TCapacity
+	>
+		class HashMap : public xht::impl::hashtable::HashTable<
+			KeyValuePair<TKey, TValue>,
+			TKey,
+			KeyTraits,
+			TSimplifier,
+			THash,
+			TCompare,
+			TAllocatorHandle,
+			TCapacity
+		>
 	{
 		using B = xht::impl::hashtable::HashTable<
 			KeyValuePair<TKey, TValue>,
 			TKey,
 			KeyTraits,
+			TSimplifier,
 			THash,
 			TCompare,
 			TAllocatorHandle,
@@ -1355,7 +1432,6 @@ namespace xht {
 		using InsertResult = xht::impl::hashtable::InsertResult<ElementType>;
 
 		using B::B;
-
 
 		template<typename TInKey>
 		xht_forceinline bool Contains(const TInKey& key) const
@@ -1434,7 +1510,7 @@ namespace xht {
 		xht_forceinline InsertResult Insert(TInKey&& key, TInValue&& value)
 		{
 			InsertResult result = B::Insert(key, &impl::hashtable::GrowCallback<
-				TKey, KeyTraits, THash, TAllocatorHandle, (TCapacity > 0)>,
+				TKey, KeyTraits, TSimplifier, THash, TAllocatorHandle, (TCapacity > 0)>,
 				& static_cast<const TAllocatorHandle&>(B::m));
 
 			if (result.Inserted)
@@ -1489,7 +1565,6 @@ namespace xht {
 			impl::hashtable::Clear<meta::DestroyType<ElementType>>(&B::m.core, sizeof(ElementType));
 		}
 
-
 		xht_forceinline void Reserve(iword minCapacity)
 		{
 			impl::hashtable::Reserve<TKey, KeyTraits,
@@ -1501,11 +1576,13 @@ namespace xht {
 
 
 	struct Mallocator {
-		u8* allocate(uword size) {
+		u8* allocate(uword size)
+		{
 			return (u8*)::malloc(size);
 		}
 
-		void free(u8* ptr, uword size) {
+		void free(u8* ptr, uword size)
+		{
 			::free(ptr);
 		}
 	};
@@ -1513,10 +1590,11 @@ namespace xht {
 	template<
 		class K,
 		class V,
-		class Hash = Hasher<K>,
-		class Eq = DefaultCompare
+		class TSimplifier = DefaultSimplifier<K>,
+		class THash = DefaultHasher<K>,
+		class TCompare = DefaultComparator<K>
 	>
-	using StdHashMap = HashMap<K, V, Hash, Eq, Mallocator, 16>;
+	using StdHashMap = HashMap<K, V, TSimplifier, THash, TCompare, Mallocator, 16>;
 }
 
 // #### END hashmap.hpp #### 

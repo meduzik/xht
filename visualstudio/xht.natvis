@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?> 
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+	<Type Name="xht::HashMap&lt;*&gt;">
+		<DisplayString>{{ size={m.core.size} cap={m.core.capacity} }}</DisplayString>
+		<Expand>
+			<CustomListItems>
+				<Variable Name="ctrl" InitialValue="m.core.ctrl"/>
+				<Variable Name="cap" InitialValue="m.core.capacity"/>
+				<Variable Name="index" InitialValue="0"/>
+				<Variable Name="elem" InitialValue="reinterpret_cast&lt;xht::KeyValuePair&lt;$T1,$T2&gt;*&gt;((char*)ctrl+cap+1+xht::impl::hashtable::GroupSize)" />
+				<Loop>
+					<Break Condition="index==cap"/>
+					<Item Name="[{elem[index].Key}]" Condition="(ctrl[index]&amp;0x80)==0">
+						elem[index].Value
+					</Item>
+					<Exec>++index</Exec>
+				</Loop>
+			</CustomListItems>
+		</Expand>
+	</Type>
+</AutoVisualizer>

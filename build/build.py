@@ -11,6 +11,7 @@ HEADER_LIST = [
 	"intlog.hpp",
 	"compare.hpp",
 	"key.hpp",
+	"simplify.hpp",
 	"hashtable.hpp",
 	"fnv1ahash.hpp",
 	"hash.hpp",
@@ -50,7 +51,6 @@ def write_headers(out_file):
 
 def write_sources(out_file):
 	for source in SOURCE_LIST:		
-		out_file.write(f"#include <xht/xht.hpp>\n")
 		with open(os.path.join(root_dir, SOURCE_PATH, source), 'r') as in_file:
 			out_file.write(f"// #### BEGIN {source} #### \n")
 			for line in in_file.readlines():
@@ -83,6 +83,7 @@ def generate_library(path):
 		out_file.write(f"#endif\n")
 		
 	with open_create(os.path.join(path, "source/xht/xht.cpp")) as out_file:
+		out_file.write(f"#include <xht/xht.hpp>\n")
 		write_sources(out_file)
 
 

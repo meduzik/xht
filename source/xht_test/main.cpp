@@ -1,15 +1,18 @@
 #include <xht/all.hpp>
 #include <iostream>
 
+namespace std {
+const std::string_view SimplifyKeyExt(const std::string& key) {
+	return key;
+}
+}
+
 int main() {
-	double dnan = std::numeric_limits<double>::quiet_NaN();
-	float fnan = std::numeric_limits<float>::quiet_NaN();
+	std::string s("test");
 
-	xht::StdHashMap<double, char> hm;
+	xht::StdHashMap<std::string_view, int> hm2;
+	hm2.Insert(s, 177);
 
-	hm.Insert(dnan, 'x');
-	std::cout << hm.Find(0.0) << std::endl;
-	
 	return 0;
 }
 
