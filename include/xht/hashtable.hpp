@@ -685,11 +685,6 @@ namespace xht::impl::hashtable {
 		}
 	};
 
-	template<typename TCompare, typename TKey>
-	using CompareType = meta::Select<
-		std::is_same_v<TCompare, BasicComparator> &&
-		meta::HasUniqueRepresentation<TKey>, TrivialKey<sizeof(TKey)>, TKey>;
-
 	template<
 		typename T,
 		typename TKey,
