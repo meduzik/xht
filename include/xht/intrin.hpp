@@ -26,7 +26,6 @@ namespace xht {
 #define xht_ctz32(x) xht::_ctz(x)
 #define xht_clz32(x) xht::_clz(x)
 #else
-#include <x86intrin.h>
 #define xht_ctz32(x) __builtin_ctz(x)
 #define xht_clz32(x) __builtin_clz(x)
 #endif

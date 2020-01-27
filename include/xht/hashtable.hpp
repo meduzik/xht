@@ -27,6 +27,7 @@ namespace xht::impl::hashtable {
 	extern const Ctrl EmptyGroup[];
 
 	//ARCH: SSE2
+#if XHT_SSSE2
 	struct Group
 	{
 		xht_forceinline explicit Group(const Ctrl* ctrl)
@@ -64,6 +65,46 @@ namespace xht::impl::hashtable {
 
 		__m128i m_ctrl;
 	};
+#else
+	struct Group
+	{
+		xht_forceinline explicit Group(const Ctrl* ctrl)
+		{
+			memcpy(m_ctrl, ctrl, sizeof(m_ctrl));
+		}
+
+		xht_forceinline u32 Match(Ctrl h2) const
+		{
+			u32 mask = 0;
+			for (uint8_t i = 0; i < sizeof(m_ctrl); i++) {
+				mask |= ((h2 == m_ctrl[i]) << i);
+			}
+			return mask;
+		}
+
+		xht_forceinline u32 MatchEmpty() const
+		{
+			return Match(Ctrl_Empty);
+		}
+
+		xht_forceinline u32 MatchFree() const
+		{
+			u32 mask = 0;
+			for (uint8_t i = 0; i < sizeof(m_ctrl); i++) {
+				mask |= ((Ctrl_End > m_ctrl[i]) << i);
+			}
+			return mask;
+		}
+
+		xht_forceinline u32 CountLeadingFree() const
+		{
+			u32 mask = MatchFree();
+			return mask == 0 ? GroupSize : xht_ctz32(mask + 1);
+		}
+
+		Ctrl m_ctrl[16];
+	};
+#endif
 
 	struct Probe
 	{

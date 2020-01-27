@@ -142,7 +142,6 @@ namespace xht {
 #define xht_ctz32(x) xht::_ctz(x)
 #define xht_clz32(x) xht::_clz(x)
 #else
-#include <x86intrin.h>
 #define xht_ctz32(x) __builtin_ctz(x)
 #define xht_clz32(x) __builtin_clz(x)
 #endif
@@ -342,7 +341,7 @@ xht_forceinline const TKey& SimplifyKeyExt(const TKey& key) {
 }
 
 template<typename TKey>
-xht_forceinline const TKey& SimplifyKey(const TKey& key) {
+xht_forceinline decltype(auto) SimplifyKey(const TKey& key) {
 	return SimplifyKeyExt(key);
 }
 
@@ -364,6 +363,8 @@ struct BasicSimplify
 	template<typename TKey, typename TInKey>
 	static xht_forceinline decltype(auto) SimplifyKey(const TInKey& inKey)
 	{
+		using TSimpleKey = SimpleKey<TKey>;
+
 		if constexpr (std::is_same_v<TKey, TInKey>)
 		{
 			return inKey;
@@ -371,16 +372,16 @@ struct BasicSimplify
 		else
 		{
 			decltype(auto) key = xht::SimplifyKey(inKey);
-			using SimpleKeyType = std::decay_t<decltype(key)>;
+			using TSimpleInKey = std::decay_t<decltype(key)>;
 
-			if constexpr (std::is_same_v<SimpleKeyType, TKey>)
+			if constexpr (std::is_same_v<TSimpleInKey, TSimpleKey>)
 			{
 				return key;
 			}
 			else
 			{
-				SimplifyVerify<TKey, TInKey, SimpleKeyType>();
-				return static_cast<TKey>(key);
+				SimplifyVerify<TSimpleKey, TInKey, TSimpleInKey>();
+				return static_cast<TSimpleKey>(key);
 			}
 		}
 	}
@@ -420,6 +421,7 @@ namespace xht::impl::hashtable {
 	extern const Ctrl EmptyGroup[];
 
 	//ARCH: SSE2
+#if XHT_SSSE2
 	struct Group
 	{
 		xht_forceinline explicit Group(const Ctrl* ctrl)
@@ -457,6 +459,46 @@ namespace xht::impl::hashtable {
 
 		__m128i m_ctrl;
 	};
+#else
+	struct Group
+	{
+		xht_forceinline explicit Group(const Ctrl* ctrl)
+		{
+			memcpy(m_ctrl, ctrl, sizeof(m_ctrl));
+		}
+
+		xht_forceinline u32 Match(Ctrl h2) const
+		{
+			u32 mask = 0;
+			for (uint8_t i = 0; i < sizeof(m_ctrl); i++) {
+				mask |= ((h2 == m_ctrl[i]) << i);
+			}
+			return mask;
+		}
+
+		xht_forceinline u32 MatchEmpty() const
+		{
+			return Match(Ctrl_Empty);
+		}
+
+		xht_forceinline u32 MatchFree() const
+		{
+			u32 mask = 0;
+			for (uint8_t i = 0; i < sizeof(m_ctrl); i++) {
+				mask |= ((Ctrl_End > m_ctrl[i]) << i);
+			}
+			return mask;
+		}
+
+		xht_forceinline u32 CountLeadingFree() const
+		{
+			u32 mask = MatchFree();
+			return mask == 0 ? GroupSize : xht_ctz32(mask + 1);
+		}
+
+		Ctrl m_ctrl[16];
+	};
+#endif
 
 	struct Probe
 	{
@@ -762,7 +804,7 @@ namespace xht::impl::hashtable {
 				u8* slot = slots + elemSize * probe.Offset(xht_ctz32(mask));
 
 				if (xht_likely(TCompare::Compare(key,
-					TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(
+					TSimplify::template SimplifyKey<TKey>(
 						*TKeyTraits::template GetKey<TKey>(slot)))))
 				{
 					return slot;
@@ -793,7 +835,7 @@ namespace xht::impl::hashtable {
 			if (srcCtrl[srcSlotIndex] >= 0)
 			{
 				uword hash = THash::Hash(
-					TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(
+					TSimplify::template SimplifyKey<TKey>(
 						*TKeyTraits::template GetKey<TKey>(srcSlot)));
 
 				iword dstSlotIndex = FindFreeSlot(dst, hash);
@@ -855,7 +897,7 @@ namespace xht::impl::hashtable {
 				continue;
 
 			uword hash = THash::Hash(
-				TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(
+				TSimplify::template SimplifyKey<TKey>(
 					*TKeyTraits::template GetKey<TKey>(slot)));
 
 			iword newSlotIndex = FindFreeSlot(table, hash);
@@ -939,7 +981,7 @@ namespace xht::impl::hashtable {
 					probe.Offset(xht_ctz32(mask));
 
 				if (xht_likely(TCompare::Compare(key,
-					TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(
+					TSimplify::template SimplifyKey<TKey>(
 						*TKeyTraits::template GetKey<TKey>(slot)))))
 				{
 					return { slot, false };
@@ -1078,11 +1120,6 @@ namespace xht::impl::hashtable {
 		}
 	};
 
-	template<typename TCompare, typename TKey>
-	using CompareType = meta::Select<
-		std::is_same_v<TCompare, BasicComparator> &&
-		meta::HasUniqueRepresentation<TKey>, TrivialKey<sizeof(TKey)>, TKey>;
-
 	template<
 		typename T,
 		typename TKey,
@@ -1175,7 +1212,7 @@ namespace xht::impl::hashtable {
 			//TODO: collapse TCompare=DefaultCompare and TKey has unique repr to
 			// dummy layout type
 
-			decltype(auto) key = TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(inKey);
+			decltype(auto) key = TSimplify::template SimplifyKey<TKey>(inKey);
 			using KeyParamType = decltype(key);
 
 			return (T*)impl::hashtable::Find<
@@ -1187,7 +1224,7 @@ namespace xht::impl::hashtable {
 		xht_forceinline InsertResult<T> Insert(const TInKey& inKey,
 			InsertCallback insertCallback, const void* insertContext)
 		{
-			decltype(auto) key = TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(inKey);
+			decltype(auto) key = TSimplify::template SimplifyKey<TKey>(inKey);
 			using KeyParamType = decltype(key);
 
 			auto result = impl::hashtable::Insert<TKey, TKeyTraits, TSimplify, TCompare, KeyParamType>(
@@ -1199,7 +1236,7 @@ namespace xht::impl::hashtable {
 		template<typename TInKey>
 		xht_forceinline T* Remove(const TInKey& inKey)
 		{
-			decltype(auto) key = TSimplify::template SimplifyKey<typename TSimplify::template SimpleKey<TKey>>(inKey);
+			decltype(auto) key = TSimplify::template SimplifyKey<TKey>(inKey);
 			using KeyParamType = decltype(key);
 
 			return (T*)impl::hashtable::Remove<
@@ -1218,45 +1255,90 @@ namespace xht::impl::hashtable {
 
 namespace xht {
 
-	struct FNV1aHash {
-		typedef u64 StateType;
+template<class T>
+struct FNV1aHash;
 
-		static constexpr u64 Seed = 0xa1807282'fb1a2f9d;
+template<>
+struct FNV1aHash<u64> {
+	using StateType = u64;
 
-		static xht_forceinline u64 Init() {
-			return Seed;
+	static constexpr StateType Seed = 0xa1807282'fb1a2f9d;
+
+	static xht_forceinline StateType Init() {
+		return Seed;
+	}
+
+	template<typename T>
+	static xht_forceinline StateType Combine(StateType state, T value) {
+		static_assert(std::is_integral_v<T>);
+
+		constexpr StateType k = 0x9ddfea08eb382d69;
+		StateType m = (StateType)(state + (StateType)value);
+		return m;
+	}
+
+	static xht_forceinline StateType Combine(
+		StateType state,
+		const void* data,
+		uword size
+	) {
+		return Combine(state, HashBytes(data, size));
+	}
+
+	static StateType HashBytes(const void* data, uword size) {
+		StateType hash = 0xcbf29ce484222325;
+		for (uword i = 0; i < size; ++i) {
+			hash ^= ((const u8*)data)[i];
+			hash *= 0x100000001b3;
 		}
+		return hash;
+	}
 
-		template<typename T>
-		static xht_forceinline u64 Combine(u64 state, T value) {
-			static_assert(std::is_integral_v<T>);
+	static xht_forceinline StateType Finalize(StateType state) {
+		return state;
+	}
+};
 
-			constexpr u64 k = 0x9ddfea08eb382d69;
-			u64 m = (u64)(state + (u64)value);
-			return m;
+template<>
+struct FNV1aHash<u32> {
+	using StateType = u32;
+
+	static constexpr StateType Seed = 0xfb1a2f9d;
+
+	static xht_forceinline StateType Init() {
+		return Seed;
+	}
+
+	template<typename T>
+	static xht_forceinline StateType Combine(StateType state, T value) {
+		static_assert(std::is_integral_v<T>);
+
+		constexpr StateType k = 0x9ddfea08;
+		StateType m = (StateType)(state + (StateType)value);
+		return m;
+	}
+
+	static xht_forceinline StateType Combine(
+		StateType state,
+		const void* data,
+		uword size
+	) {
+		return Combine(state, HashBytes(data, size));
+	}
+
+	static StateType HashBytes(const void* data, uword size) {
+		StateType hash = 0x811c9dc5;
+		for (uword i = 0; i < size; ++i) {
+			hash ^= ((const u8*)data)[i];
+			hash *= 0x01000193;
 		}
+		return hash;
+	}
 
-		static xht_forceinline u64 Combine(
-			u64 state,
-			const void* data,
-			uword size
-		) {
-			return Combine(state, HashBytes(data, size));
-		}
-
-		static u64 HashBytes(const void* data, uword size) {
-			uword hash = 0xcbf29ce484222325;
-			for (uword i = 0; i < size; ++i) {
-				hash ^= ((const u8*)data)[i];
-				hash *= 0x100000001b3;
-			}
-			return hash;
-		}
-
-		static xht_forceinline uword Finalize(u64 state) {
-			return state;
-		}
-	};
+	static xht_forceinline StateType Finalize(StateType state) {
+		return state;
+	}
+};
 
 }
 // #### END fnv1ahash.hpp #### 
@@ -1314,7 +1396,7 @@ xht_forceinline TState Hash(TState state, T val) {
 	return HashExt(state, val);
 }
 
-using DefaultHash = FNV1aHash;
+using DefaultHash = FNV1aHash<meta::Select<sizeof(uword) == 8, u64, u32>>;
 
 template<typename THash>
 struct HashState {
