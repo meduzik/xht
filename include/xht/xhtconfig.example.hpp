@@ -31,4 +31,5 @@
 // #define xht_assert(c)
 
 
-// XHT_SSSE3
+// #define XHT_SSE2 1
+// #define XHT_SSSE3 1

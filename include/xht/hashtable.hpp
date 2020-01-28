@@ -23,11 +23,12 @@ namespace xht::impl::hashtable {
 		Ctrl_End = (i8)0b11111111,
 	};
 
-	constexpr iword GroupSize = 16;
 	extern const Ctrl EmptyGroup[];
 
 	//ARCH: SSE2
-#if XHT_SSSE2
+#if XHT_SSE2 || XHT_SSSE3
+	constexpr iword GroupSize = 16;
+#define XHT_MASK_EXTRACT_CTZ(mask) (xht_ctz32(mask))
 	struct Group
 	{
 		xht_forceinline explicit Group(const Ctrl* ctrl)
@@ -66,32 +67,46 @@ namespace xht::impl::hashtable {
 		__m128i m_ctrl;
 	};
 #else
+
+#define XHT_HASZERO(x) (((x) - 0x01010101'01010101ULL) & ~(x) & 0x80808080'80808080ULL)
+#define XHT_HASVALUE(x, n) (XHT_HASZERO((x) ^ (~0ULL/255 * (n))))
+#define XHT_MASK_EXTRACT_CTZ(mask) (xht_ctz64(mask) >> 3)
+
+	constexpr iword GroupSize = 8;
+
 	struct Group
 	{
 		xht_forceinline explicit Group(const Ctrl* ctrl)
 		{
-			memcpy(m_ctrl, ctrl, sizeof(m_ctrl));
+			memcpy(&m_ctrl, ctrl, sizeof(m_ctrl));
 		}
 
-		xht_forceinline u32 Match(Ctrl h2) const
+		xht_forceinline u64 Match(Ctrl h2) const
 		{
+			return XHT_HASVALUE(m_ctrl, h2);
+		}
+
+		xht_forceinline u32 MatchSlow(Ctrl h2) const
+		{
+			const Ctrl* ctrl = (const Ctrl*)&m_ctrl;
 			u32 mask = 0;
 			for (uint8_t i = 0; i < sizeof(m_ctrl); i++) {
-				mask |= ((h2 == m_ctrl[i]) << i);
+				mask |= ((Ctrl_Empty == ctrl[i]) << i);
 			}
 			return mask;
 		}
 
 		xht_forceinline u32 MatchEmpty() const
 		{
-			return Match(Ctrl_Empty);
+			return MatchSlow(Ctrl_Empty);
 		}
 
 		xht_forceinline u32 MatchFree() const
 		{
+			const Ctrl* ctrl = (const Ctrl*)&m_ctrl;
 			u32 mask = 0;
 			for (uint8_t i = 0; i < sizeof(m_ctrl); i++) {
-				mask |= ((Ctrl_End > m_ctrl[i]) << i);
+				mask |= ((Ctrl_End > ctrl[i]) << i);
 			}
 			return mask;
 		}
@@ -102,7 +117,7 @@ namespace xht::impl::hashtable {
 			return mask == 0 ? GroupSize : xht_ctz32(mask + 1);
 		}
 
-		Ctrl m_ctrl[16];
+		u64 m_ctrl;
 	};
 #endif
 
@@ -405,9 +420,9 @@ namespace xht::impl::hashtable {
 		{
 			Group group(ctrl + probe.m_offset);
 
-			for (u32 mask = group.Match(h2); mask != 0; mask &= mask - 1)
+			for (auto mask = group.Match(h2); mask != 0; mask &= mask - 1)
 			{
-				u8* slot = slots + elemSize * probe.Offset(xht_ctz32(mask));
+				u8* slot = slots + elemSize * probe.Offset(XHT_MASK_EXTRACT_CTZ(mask));
 
 				if (xht_likely(TCompare::Compare(key,
 					TSimplify::template SimplifyKey<TKey>(
@@ -581,10 +596,10 @@ namespace xht::impl::hashtable {
 		{
 			Group group(ctrl + probe.m_offset);
 
-			for (u32 mask = group.Match(h2); mask != 0; mask &= mask - 1)
+			for (auto mask = group.Match(h2); mask != 0; mask &= mask - 1)
 			{
 				u8* slot = slots + elemSize *
-					probe.Offset(xht_ctz32(mask));
+					probe.Offset(XHT_MASK_EXTRACT_CTZ(mask));
 
 				if (xht_likely(TCompare::Compare(key,
 					TSimplify::template SimplifyKey<TKey>(
