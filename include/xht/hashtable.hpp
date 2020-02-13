@@ -620,11 +620,11 @@ namespace xht::impl::hashtable {
 	}
 
 	//TODO: make sure the elem is destroyed on the outside...
-	template<typename TKey, typename TKeyTraits, typename TCompare, typename TInKey>
+	template<typename TKey, typename TKeyTraits, typename TSimplify, typename TCompare, typename TInKey>
 	static void* Remove(Core* table, uword elemSize, uword hash, TInKey key)
 	{
 		void* slot = Find<
-			TKey, TKeyTraits, TCompare, TInKey>(
+			TKey, TKeyTraits, TSimplify, TCompare, TInKey>(
 				table, elemSize, hash, key);
 
 		if (slot != nullptr)
@@ -861,7 +861,7 @@ namespace xht::impl::hashtable {
 			using KeyParamType = decltype(key);
 
 			return (T*)impl::hashtable::Remove<
-				TKey, TKeyTraits, TCompare, KeyParamType>(
+				TKey, TKeyTraits, TSimplify, TCompare, KeyParamType>(
 					&m.core, sizeof(T), THash::Hash(key), key);
 		}
 

@@ -2,15 +2,37 @@
 #define XHT_UNITY_HEADER
 // #### BEGIN config.hpp #### 
 
-#if __has_include("xhtconfig.hpp")
+#if defined(XHT_CONFIG_FILE)
+#include XHT_CONFIG_FILE
 #endif
 
 #if !defined(XHT_STATIC) && !defined(XHT_SHARED)
 	#define XHT_STATIC
 #endif
 
-#if defined(XHT_INCLUDE_IMPLEMENTATION)
+#if defined(XHT_INCLUDE_IMPLEMENTATION) && !defined(XHT_BUILD)
 	#define XHT_BUILD
+#endif
+
+#if !defined(XHT_SSE2)
+	#if defined(__SSE2__) || (defined(_M_IX86_FP) && (_M_IX86_FP+0 == 2)) || defined(_M_X64)
+		#define XHT_SSE2 1
+	#else
+		#define XHT_SSE2 0
+	#endif
+#endif
+
+#if !defined(XHT_SSSE3)
+	// just assume ssse3 on msvc
+	#if __SSSE3__ || (defined(_M_IX86_FP) && (_M_IX86_FP+0 == 2)) || defined(_M_X64)
+		#define XHT_SSSE3 1
+	#else
+		#define XHT_SSSE3 0
+	#endif
+#endif
+
+#if XHT_SSSE3 && !XHT_SSE2
+	#error Incorrect SSE settings
 #endif
 
 namespace xht {
@@ -125,25 +147,51 @@ using iword = std::intptr_t;
 
 namespace xht {
 
-	inline xht_forceinline u32 _ctz(u32 x) {
+	inline xht_forceinline u32 _ctz32(u32 x) {
 		unsigned long r = 0;
 		_BitScanForward(&r, x);
 		return r;
 	}
 
-	inline xht_forceinline u32 _clz(u32 value) {
+	inline xht_forceinline u32 _clz32(u32 value) {
 		unsigned long r = 0;
 		_BitScanReverse(&r, value);
 		return 31 - r;
 	}
 
+	#if defined(_M_X64)
+	inline xht_forceinline u64 _ctz64(u64 x) {
+		unsigned long r = 0;
+		_BitScanForward64(&r, x);
+		return r;
+	}
+
+	inline xht_forceinline u64 _clz64(u64 value) {
+		unsigned long r = 0;
+		_BitScanReverse64(&r, value);
+		return 63 - r;
+	}
+	#endif
 }
 
-#define xht_ctz32(x) xht::_ctz(x)
-#define xht_clz32(x) xht::_clz(x)
+	#define xht_ctz32(x) xht::_ctz32(x)
+	#define xht_clz32(x) xht::_clz32(x)
+
+	#if defined(_M_X64)
+	#define xht_ctz64(x) xht::_ctz64(x)
+	#define xht_clz64(x) xht::_clz64(x)
+	#endif
+
 #else
-#define xht_ctz32(x) __builtin_ctz(x)
-#define xht_clz32(x) __builtin_clz(x)
+
+	#if XHT_SSE2
+	#include <x86intrin.h>
+	#endif
+
+	#define xht_ctz32(x) __builtin_ctz(x)
+	#define xht_ctz64(x) __builtin_ctzll(x)
+	#define xht_clz32(x) __builtin_clz(x)
+	#define xht_clz64(x) __builtin_clzll(x)
 #endif
 
 
@@ -417,11 +465,12 @@ namespace xht::impl::hashtable {
 		Ctrl_End = (i8)0b11111111,
 	};
 
-	constexpr iword GroupSize = 16;
 	extern const Ctrl EmptyGroup[];
 
 	//ARCH: SSE2
-#if XHT_SSSE2
+#if XHT_SSE2 || XHT_SSSE3
+	constexpr iword GroupSize = 16;
+#define XHT_MASK_EXTRACT_CTZ(mask) (xht_ctz32(mask))
 	struct Group
 	{
 		xht_forceinline explicit Group(const Ctrl* ctrl)
@@ -460,32 +509,46 @@ namespace xht::impl::hashtable {
 		__m128i m_ctrl;
 	};
 #else
+
+#define XHT_HASZERO(x) (((x) - 0x01010101'01010101ULL) & ~(x) & 0x80808080'80808080ULL)
+#define XHT_HASVALUE(x, n) (XHT_HASZERO((x) ^ (~0ULL/255 * (n))))
+#define XHT_MASK_EXTRACT_CTZ(mask) (xht_ctz64(mask) >> 3)
+
+	constexpr iword GroupSize = 8;
+
 	struct Group
 	{
 		xht_forceinline explicit Group(const Ctrl* ctrl)
 		{
-			memcpy(m_ctrl, ctrl, sizeof(m_ctrl));
+			memcpy(&m_ctrl, ctrl, sizeof(m_ctrl));
 		}
 
-		xht_forceinline u32 Match(Ctrl h2) const
+		xht_forceinline u64 Match(Ctrl h2) const
 		{
+			return XHT_HASVALUE(m_ctrl, h2);
+		}
+
+		xht_forceinline u32 MatchSlow(Ctrl h2) const
+		{
+			const Ctrl* ctrl = (const Ctrl*)&m_ctrl;
 			u32 mask = 0;
 			for (uint8_t i = 0; i < sizeof(m_ctrl); i++) {
-				mask |= ((h2 == m_ctrl[i]) << i);
+				mask |= ((Ctrl_Empty == ctrl[i]) << i);
 			}
 			return mask;
 		}
 
 		xht_forceinline u32 MatchEmpty() const
 		{
-			return Match(Ctrl_Empty);
+			return MatchSlow(Ctrl_Empty);
 		}
 
 		xht_forceinline u32 MatchFree() const
 		{
+			const Ctrl* ctrl = (const Ctrl*)&m_ctrl;
 			u32 mask = 0;
 			for (uint8_t i = 0; i < sizeof(m_ctrl); i++) {
-				mask |= ((Ctrl_End > m_ctrl[i]) << i);
+				mask |= ((Ctrl_End > ctrl[i]) << i);
 			}
 			return mask;
 		}
@@ -496,7 +559,7 @@ namespace xht::impl::hashtable {
 			return mask == 0 ? GroupSize : xht_ctz32(mask + 1);
 		}
 
-		Ctrl m_ctrl[16];
+		u64 m_ctrl;
 	};
 #endif
 
@@ -799,9 +862,9 @@ namespace xht::impl::hashtable {
 		{
 			Group group(ctrl + probe.m_offset);
 
-			for (u32 mask = group.Match(h2); mask != 0; mask &= mask - 1)
+			for (auto mask = group.Match(h2); mask != 0; mask &= mask - 1)
 			{
-				u8* slot = slots + elemSize * probe.Offset(xht_ctz32(mask));
+				u8* slot = slots + elemSize * probe.Offset(XHT_MASK_EXTRACT_CTZ(mask));
 
 				if (xht_likely(TCompare::Compare(key,
 					TSimplify::template SimplifyKey<TKey>(
@@ -975,10 +1038,10 @@ namespace xht::impl::hashtable {
 		{
 			Group group(ctrl + probe.m_offset);
 
-			for (u32 mask = group.Match(h2); mask != 0; mask &= mask - 1)
+			for (auto mask = group.Match(h2); mask != 0; mask &= mask - 1)
 			{
 				u8* slot = slots + elemSize *
-					probe.Offset(xht_ctz32(mask));
+					probe.Offset(XHT_MASK_EXTRACT_CTZ(mask));
 
 				if (xht_likely(TCompare::Compare(key,
 					TSimplify::template SimplifyKey<TKey>(
@@ -999,11 +1062,11 @@ namespace xht::impl::hashtable {
 	}
 
 	//TODO: make sure the elem is destroyed on the outside...
-	template<typename TKey, typename TKeyTraits, typename TCompare, typename TInKey>
+	template<typename TKey, typename TKeyTraits, typename TSimplify, typename TCompare, typename TInKey>
 	static void* Remove(Core* table, uword elemSize, uword hash, TInKey key)
 	{
 		void* slot = Find<
-			TKey, TKeyTraits, TCompare, TInKey>(
+			TKey, TKeyTraits, TSimplify, TCompare, TInKey>(
 				table, elemSize, hash, key);
 
 		if (slot != nullptr)
@@ -1240,7 +1303,7 @@ namespace xht::impl::hashtable {
 			using KeyParamType = decltype(key);
 
 			return (T*)impl::hashtable::Remove<
-				TKey, TKeyTraits, TCompare, KeyParamType>(
+				TKey, TKeyTraits, TSimplify, TCompare, KeyParamType>(
 					&m.core, sizeof(T), THash::Hash(key), key);
 		}
 
@@ -1746,7 +1809,7 @@ namespace xht::impl::hashtable {
 	}
 
 	static void ConvertSpecialToEmptyAndFullToTomb(Ctrl* group) {
-	#if XHT_SSE2
+	#if XHT_SSE2 || XHT_SSSE3
 		__m128i ctrl = _mm_loadu_si128((const __m128i*)group);
 
 		__m128i msb1 = _mm_set1_epi8(0b10000000u);

@@ -74,6 +74,12 @@ def generate_unity_file(path):
 		
 		out_file.write(f"#endif\n")
 		
+
+def generate_source_file(path):
+	with open_create(path) as out_file:
+		out_file.write(f"#include <xht/xht.hpp>\n")
+		write_sources(out_file)
+		
 		
 def generate_library(path):
 	with open_create(os.path.join(path, "include/xht/xht.hpp")) as out_file:
@@ -87,11 +93,11 @@ def generate_library(path):
 		write_sources(out_file)
 
 
-if __name__ == "__main__":
-	
+if __name__ == "__main__":	
 	if len(sys.argv) > 1:
 		out_dir = sys.argv[1]
 	else:
 		out_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "products")
-		generate_unity_file(os.path.join(out_dir, "header_only/xht.hpp"))
+		generate_unity_file(os.path.join(out_dir, "header_only/xht/xht.hpp"))
+		generate_unity_file(os.path.join(out_dir, "header_only/xht/xht.impl.inc"))
 		generate_library(os.path.join(out_dir, "lib"))

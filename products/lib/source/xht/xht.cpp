@@ -63,7 +63,7 @@ namespace xht::impl::hashtable {
 	}
 
 	static void ConvertSpecialToEmptyAndFullToTomb(Ctrl* group) {
-	#if XHT_SSE2
+	#if XHT_SSE2 || XHT_SSSE3
 		__m128i ctrl = _mm_loadu_si128((const __m128i*)group);
 
 		__m128i msb1 = _mm_set1_epi8(0b10000000u);

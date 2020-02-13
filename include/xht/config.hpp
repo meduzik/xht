@@ -1,14 +1,14 @@
 #pragma once
 
-#if __has_include("xhtconfig.hpp")
-#include "xhtconfig.hpp"
+#if defined(XHT_CONFIG_FILE)
+#include XHT_CONFIG_FILE
 #endif
 
 #if !defined(XHT_STATIC) && !defined(XHT_SHARED)
 	#define XHT_STATIC
 #endif
 
-#if defined(XHT_INCLUDE_IMPLEMENTATION)
+#if defined(XHT_INCLUDE_IMPLEMENTATION) && !defined(XHT_BUILD)
 	#define XHT_BUILD
 #endif
 
